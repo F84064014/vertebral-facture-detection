@@ -1,6 +1,7 @@
 import os
 import sys
 import cv2
+import math
 import time
 from numpy.lib.function_base import average
 import torch
@@ -28,6 +29,10 @@ n: the number of segmentation
 '''
 def edge_segment(cord1, cord2, outline, angle=0, upper=True, n=3):
 
+    # for recovering from rotation
+    cy, cx = outline.shape
+    cx, cy = cx//2, cy//2
+
     if cord1[0] < cord2[0]:
         cord1, cord2 = cord2, cord1
 
@@ -46,7 +51,7 @@ def edge_segment(cord1, cord2, outline, angle=0, upper=True, n=3):
     if upper == False:
         orthogonal_vec *= -1
 
-    intersection = []
+    intersections = []
 
     for i in range(1, len(kx)-1):
         t=0
@@ -56,7 +61,7 @@ def edge_segment(cord1, cord2, outline, angle=0, upper=True, n=3):
                 t1 = round(kx[i] - t * orthogonal_vec[0])
                 t2 = round(ky[i] - t * orthogonal_vec[1])
                 if t1<0 or t2<0 or t1>=outline.shape[1] or t2>=outline.shape[0] or outline[t2, t1] == False:
-                    intersection.append((i1,i2))
+                    intersections.append((i1,i2))
                     break
                 else:
                     t+=1
@@ -67,16 +72,28 @@ def edge_segment(cord1, cord2, outline, angle=0, upper=True, n=3):
                 t1 = round(kx[i] + t * orthogonal_vec[0])
                 t2 = round(ky[i] + t * orthogonal_vec[1])
                 if t1<0 or t2<0 or t1>=outline.shape[1] or t2>=outline.shape[0] or outline[t2, t1] != False:
-                    intersection.append((t1,t2))
+                    intersections.append((t1,t2))
                     break
                 else:
                     t+=1
                     i1, i2 = t1, t2
 
-    intersection.append((kx[-1], ky[-1]))
-    intersection = [(kx[0], ky[0])] + intersection
+    intersections.append((kx[-1], ky[-1]))
+    intersections = [(kx[0], ky[0])] + intersections
 
-    return intersection
+    # rotate back
+    if angle != 0:
+        angle = np.radians(angle)
+        recover_intersections = []
+        for intersection in intersections:
+            x1, y1 = intersection
+            x1, y1 = x1-outline.shape[1]//2, y1-outline.shape[0]//2
+            x2 = x1 * np.cos(angle) - y1*np.sin(angle)
+            y2 = y1 * np.cos(angle) + x1*np.sin(angle)
+            recover_intersections.append((x2+cx, y2+cy))
+        return recover_intersections
+
+    return intersections
 
 '''
 get the four corners by the mask
@@ -160,6 +177,9 @@ look like it works well but no theoratical proof
 
 def minCornerDistance(input_mask, angle=0):
     
+    cy, cx = input_mask.shape
+    cx, cy = cx//2, cy//2
+
     # do rotation
     mask = np.array(TF.rotate(Image.fromarray(input_mask), angle, expand=True))
     
@@ -173,6 +193,7 @@ def minCornerDistance(input_mask, angle=0):
     idxs = []
 
     conts = np.squeeze(np.array(contours))
+
     upper_left = np.square(conts[:,0]) + np.square(conts[:,1])#+np.square(conts[:,0])
     idxs.append(np.argmin(upper_left))
 
@@ -185,8 +206,41 @@ def minCornerDistance(input_mask, angle=0):
     lower_left = np.square(conts[:,0]) + np.square(conts[:,1]-mask.shape[0])#+np.square(conts[:,0])
     idxs.append(np.argmin(lower_left))
 
-    # return [conts[idx] for idx in idxs]
-    return conts[idxs]
+    # rotate back
+    angle = np.radians(angle)
+    recover_conts = []
+    for idx in idxs:
+        x1, y1 = conts[idx]
+        x1, y1 = x1-mask.shape[1]//2, y1-mask.shape[0]//2
+        x2 = x1 * np.cos(angle) - y1*np.sin(angle)
+        y2 = y1 * np.cos(angle) + x1*np.sin(angle)
+        # recover_conts.append((x2+mask.shape[1]//2, y2+mask.shape[0]//2))
+        recover_conts.append((x2+cx, y2+cy))
+
+    mid_slope = math.tan(math.radians(90+math.degrees(angle)))
+    mid_intercept = cy - mid_slope * cx
+
+    # to check the mid line seperate the left and right
+    # plt.imshow(input_mask)
+    # for recover_cont in recover_conts:
+    #     mark = 'r+' if recover_cont[0] * mid_slope + mid_intercept - recover_cont[1] < 0 else 'g+'
+    #     plt.plot(recover_cont[0], recover_cont[1], mark)
+    # plt.plot(cx, cy, 'c+')
+    # X = np.linspace(0, input_mask.shape[1])
+    # plt.plot(X, mid_slope*X+mid_intercept, 'y-')
+    # plt.xlim([0, input_mask.shape[1]])
+    # plt.ylim([input_mask.shape[0],0])
+    # plt.show()
+
+    # recover_conts.sort(key=lambda c: c[0], reverse=False)
+    recover_conts.sort(key=lambda c: c[0] * mid_slope + mid_intercept - c[1], reverse=False)
+    if recover_conts[0][1] > recover_conts[1][1]:
+        recover_conts[1], recover_conts[0] = recover_conts[0], recover_conts[1]
+    if recover_conts[2][1] > recover_conts[3][1]:
+        recover_conts[2], recover_conts[3] = recover_conts[3], recover_conts[2]
+
+    # return conts[idxs]
+    return recover_conts
 
 '''
 get the angle of each vertext by yolo result (center point)
@@ -197,6 +251,8 @@ boxs: list of box (left, top, right, bot)
 def get_angle(boxs):
 
     centers = []
+    degrees = []
+
     for box in boxs:
         xc = (box[0] + box[2]) / 2
         yc = (box[1] + box[3]) / 2
@@ -207,8 +263,29 @@ def get_angle(boxs):
         slope_last, slope_next = None, None
 
         if i != 0:
-            slope_last = (centers[i-1][0] - centers[i-1][0]) / (centers[i][1] - centers[i][1])
-        slope_next = (centers[i][0] - centers[i][0]) / (centers[i+1][1] - centers[i+1][1])
+            # to handle divide by zero situation
+            if centers[i][0] - centers[i-1][0] != 0:
+                slope_last = (centers[i][1] - centers[i-1][1]) / (centers[i][0] - centers[i-1][0])
+            else:
+                slope_last = 10000000000 * np.sign((centers[i][1] - centers[i-1][1]))
+        
+        if i != len(centers)-1:
+            # to handle divide by zero situation
+            if (centers[i+1][0] - centers[i][0]) != 0:
+                slope_next = (centers[i+1][1] - centers[i][1]) / (centers[i+1][0] - centers[i][0])
+            else:
+                slope_next = 10000000000 * np.sign((centers[i+1][1] - centers[i][1]))
+        
+        if slope_next == None:
+            a = slope_last
+        elif slope_last == None:
+            a = slope_next
+        else:
+            a = (slope_next + slope_last)/2
+
+        degrees.append(90-math.degrees(math.atan(a)))
+
+    return degrees
 
 
 if __name__ == '__main__':

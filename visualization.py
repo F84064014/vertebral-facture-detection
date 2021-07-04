@@ -2,25 +2,33 @@ import os
 import copy
 import numpy as np
 from PIL import Image
-from matplotlib import lines, pyplot as plt
+from matplotlib import colors
+from matplotlib import pyplot as plt
 from torch._C import dtype
 
 from yoloDetect import read_label
-from segfunct import minCornerDistance
 
+
+cmap = colors.ListedColormap(['blue', 'red', 'green'])
+bounds=[-1.1,0.1,1.1,3]
+norm = colors.BoundaryNorm(bounds, cmap.N)
 
 '''
 img: input full image
 masks: list of prediction result for segmentation
 conds: list of integer represent the cnodition of vertex
 '''
-def ResultVisiualize(img_fp, msks, conds, boxs, dest_fp=None):
+def ResultVisiualize(img_fp, msks, vconds, sconds, boxs, lst_plot_points=None, dest_fp=None):
     
+    print(vconds)
+
+    plt.clf()
     img = Image.open(img_fp)
+    plt.figure(figsize=(10,10*img.size[1]/img.size[0]))
     plt.imshow(img, cmap='gray')
     plt.gca().set_axis_off()
     
-    for msk, box, cond in zip(msks, boxs, conds):
+    for msk, box, vcond, scond in zip(msks, boxs, vconds, sconds):
 
         # new image is outimg with padding = 0
         new_img = np.zeros(np.asarray(img).shape)
@@ -29,14 +37,41 @@ def ResultVisiualize(img_fp, msks, conds, boxs, dest_fp=None):
             for j in range(msk.shape[1]):
                 new_img[int(box[1]+i),int(box[0]+j)] = msk[i,j]
 
-        # masked = np.ma.masked_where(new_img < 0.8 , new_img)
-        masked = np.where(new_img > 0.8, 1, np.nan)
-        col = 'jet' if cond==1 else 'autumn'
+        #　color map
+        # 0: blue
+        # 1: red
+        # 2: green
+        col = 0 if vcond==1 else 1
+        col = col if scond==0 else 2
+        masked = np.where(new_img > 0.8, col, np.nan)
+        # masked = np.stack((masked,)*3, axis=-1)
 
-        plt.imshow(masked, alpha=0.5, cmap=col)
+        plt.imshow(masked, alpha=0.5, cmap=cmap, norm=norm)
         # plt.text(box[0], box[1], 'this is good')
 
-        cs = minCornerDistance(msk, 0)
+        # cs = minCornerDistance(msk, 0)
+
+    if lst_plot_points != None:
+
+        lst_corners, lst_uppers, lst_lowers = lst_plot_points
+
+        lst_corners = corner_correct(lst_corners, boxs)
+        lst_uppers = corner_correct(lst_uppers, boxs)
+        lst_lowers = corner_correct(lst_lowers, boxs)
+
+        for corners, uppers, lowers in zip(lst_corners, lst_uppers, lst_lowers):
+            for corner in corners:
+                plt.plot(corner[0], corner[1], 'r+')
+            idx_mid = len(uppers)//2
+            plt.plot(uppers[idx_mid][0], uppers[idx_mid][1], 'g+')
+            plt.plot(lowers[idx_mid][0], lowers[idx_mid][1], 'g+')
+            plt.plot([uppers[idx_mid][0], lowers[idx_mid][0]], [uppers[idx_mid][1], lowers[idx_mid][1]], 'y-')
+
+        for corners, uppers, lowers in zip(lst_corners, lst_uppers, lst_lowers):
+            plt.plot([corners[0][0], corners[1][0]], [corners[0][1], corners[1][1]], 'y-')
+            plt.plot([corners[3][0], corners[2][0]], [corners[3][1], corners[2][1]], 'y-')
+
+
 
     plt.margins(0,0)
     plt.gca().xaxis.set_major_locator(plt.NullLocator())
@@ -45,6 +80,24 @@ def ResultVisiualize(img_fp, msks, conds, boxs, dest_fp=None):
         plt.savefig(dest_fp, bbox_inches = 'tight', pad_inches = 0)
     else:
        plt.show()
+
+
+'''
+lst_corners: list of corners=[(x1,y1), ..., (x4,y4)]
+boxs: list of boxx=(left, top, right, bot)
+
+return: list of new corner with corrected coordinate
+'''
+def corner_correct(lst_corners, boxs):
+
+    new_lst_corners = []
+    for corners, box in zip(lst_corners, boxs):
+
+        x0, y0 = box[0], box[1]
+        new_lst_corners.append([(x0+corners[i][0], y0+corners[i][1]) for i in range(len(corners))])
+
+    return new_lst_corners
+
 
 
 if __name__=='__main__':

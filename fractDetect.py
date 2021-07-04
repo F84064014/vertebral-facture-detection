@@ -24,15 +24,19 @@ masks: input a list of binary mask
 positions: input a list of position of binray mask
 md: input model
 angle: rotation. rotate to the central line could lead to well beeter result
-'''
-def fracturePredict(mask, position, mds, angle=0, outfp=None):
+method: the method used
+    'dec' (default): DecisionTree
+    'rcf': RandomForest
+    'knn': KNearstNeighbor
+    'rule': Rule based
 
-    # for mask, position in zip(masks, positions):
+'''
+def fracturePredict(mask, position, mds, angle=0, method='dec', outfp=None):
 
     cs = minCornerDistance(mask, angle=angle)
 
-    us = edge_segment(cs[0], cs[1], mask, angle=angle, n=6)
-    ds = edge_segment(cs[2], cs[3], mask, angle=angle, upper=False, n=6)
+    us = edge_segment(cs[0], cs[2], mask, n=6)
+    ds = edge_segment(cs[1], cs[3], mask, upper=False, n=6)
 
     feature = np.sqrt(np.sum(np.square(np.array(us) - np.array(ds)), axis=1))
 
@@ -53,10 +57,28 @@ def fracturePredict(mask, position, mds, angle=0, outfp=None):
                 outf.write('{}\n'.format(' '.join([str(f) for f in feature])))
 
     # multiple prediction but here input only one vertex
-    preds = []
-    for i in range(len(mds)):
-        preds.append(mds[i]['dec'].predict([feature]))
 
-    preds = np.where(np.sum(np.array(preds).T, axis=1) > 3, 1, 0)
+    # ML method
+    if method != 'rule':
+        preds = []
+        for i in range(len(mds)):
+            preds.append(mds[i][method].predict([feature]))
 
-    return preds[0]
+        # preds = np.where(np.sum(np.array(preds).T, axis=1) > 3, 1, 0)
+        preds = np.array(preds)
+        if len(preds[preds==1]) > 3:
+            pred = len(preds[preds==1])/len(preds)
+        else:
+            pred = -len(preds[preds==0])/len(preds)
+        
+        return cs, us, ds, pred
+    # Rule based
+    else:
+        if feature[3] < 0.8 or feature[3] > 1.25:
+            return cs, us, ds, 0
+        elif feature[5] < 0.8 or feature[5] > 1.25:
+            return cs, us, ds, 0
+        elif feature[4] < 0.8 or feature[4] > 1.25:
+            return cs, us, ds, 0
+        else:
+            return cs, us, ds, 1
