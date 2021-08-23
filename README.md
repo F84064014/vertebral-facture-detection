@@ -10,7 +10,7 @@ In this project we will use both machine learning and deep learning method. Deep
 
 1. Labeling Data <br/><br/>
 manual labeling data with twelve-sided polygon for each vertebra. <br/><br/>
-each vetebra labeled with its position (T1-T12, L1-L5, S)
+each vetebra labeled with its position (T1-T12, L1-L5, S) <br/><br/>
 ![image1](./image/manual_labeling.png)
 2. Object Detection for Vertebra <br/><br/>
 ![image1](./image/DetectionDemo.jpg)
