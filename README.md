@@ -22,6 +22,28 @@ each vetebra labeled with its position (T1-T12, L1-L5, S) <br/><br/>
 ![image1](./image/rl_scatter.jpg)
 6. Detection, train ML model from feature obtained in step 4, here we try three method including DecisionTree, RandomForest and KNN, for each vertebra detected, extract feature and predict the result (normal, screw or fractured)
 
+# Usage
+Example:
+
+```
+python Vdetect.py --source ./source_folder --dest ./destination_folder
+```
+Required arguments:
+
+```
+-s --source   path of source folder(contain several images) or source image
+-d --dest     path of the folder where the result saved
+```
+Optional arguments:
+
+| Parameter                 | Default       | Description   |	
+| :------------------------ |:-------------:| :-------------|
+| -n --name 	              |	    'exp'     | name of the output directory
+| -ma  --mask               |      None     | path of directory of mask predicted in advance (if None, do prediction and output result)
+| -o --objecct  		        |      None	    | path of directory of yolov5 result predicted in advance (if None, do prediction and output result)
+| -me -–method 	            |	    'rfc'     | ML meahotd used to predict the result {'rfc': RandomForestClassifier, 'dec': DecisionTreeClassifier, 'knn': KNearestNeighbor, 'rule' rule based}
+
+
 # Demo Image
 
 there are three color blue, green and red represent normal, screwed and fractured respectively.<br/><br/>
